@@ -201,6 +201,7 @@ rule("clice_build_config")
             target:add("ldflags", "-fuse-ld=lld")
             target:add("ldflags", "-static-libgcc")
             target:add("ldflags", "-static-libstdc++")
+            target:add("ldflags", "-static")
         end
         if has_config("ci") then
             target:add("cxxflags", "-DCLICE_CI_ENVIRONMENT")
