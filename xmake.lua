@@ -199,6 +199,8 @@ rule("clice_build_config")
         elseif target:is_plat("linux") then
             -- gnu ld need to fix link order
             target:add("ldflags", "-fuse-ld=lld")
+            target:add("ldflags", "-static-libgcc")
+            target:add("ldflags", "-static-libstdc++")
         end
         if has_config("ci") then
             target:add("cxxflags", "-DCLICE_CI_ENVIRONMENT")
