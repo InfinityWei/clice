@@ -12,14 +12,14 @@ void Server::load_cache_info() {
     auto path = path::join(config.project.cache_dir, "cache.json");
     auto file = llvm::MemoryBuffer::getFile(path);
     if(!file) {
-        logging::warn("Fail to load cache info, because: {}", file.getError());
+        LOGGING_WARN("Fail to load cache info, because: {}", file.getError());
         return;
     }
 
     llvm::StringRef content = file.get()->getBuffer();
     auto json = json::parse(content);
     if(!json) {
-        logging::warn("Fail to load cache info, invalid json: {}", json.takeError());
+        LOGGING_WARN("Fail to load cache info, invalid json: {}", json.takeError());
         return;
     }
 
@@ -30,7 +30,7 @@ void Server::load_cache_info() {
 
     auto version = object->getString("version");
     if(!version) {
-        logging::info("Fail to load cache info, the cache info is outdated");
+        LOGGING_INFO("Fail to load cache info, the cache info is outdated");
         return;
     }
 
@@ -75,7 +75,7 @@ void Server::load_cache_info() {
         }
     }
 
-    logging::info("Load cache info successfully");
+    LOGGING_INFO("Load cache info successfully");
 }
 
 void Server::save_cache_info() {
@@ -105,20 +105,20 @@ void Server::save_cache_info() {
 
     llvm::SmallString<128> temp_path;
     if(auto error = llvm::sys::fs::createTemporaryFile("cache", "json", temp_path)) {
-        logging::warn("Fail to create temporary file for cache info: {}", error.message());
+        LOGGING_WARN("Fail to create temporary file for cache info: {}", error.message());
         return;
     }
 
     auto clean_up = llvm::make_scope_exit([&temp_path]() {
         if(auto errc = llvm::sys::fs::remove(temp_path)) {
-            logging::warn("Fail to remove temporary file: {}", errc.message());
+            LOGGING_WARN("Fail to remove temporary file: {}", errc.message());
         }
     });
 
     std::error_code EC;
     llvm::raw_fd_ostream os(temp_path, EC, llvm::sys::fs::OF_None);
     if(EC) {
-        logging::warn("Fail to open temporary file for writing: {}", EC.message());
+        LOGGING_WARN("Fail to open temporary file for writing: {}", EC.message());
         return;
     }
 
@@ -127,26 +127,24 @@ void Server::save_cache_info() {
     os.close();
 
     if(os.has_error()) {
-        logging::warn("Fail to write cache info to temporary file");
+        LOGGING_WARN("Fail to write cache info to temporary file");
         return;
     }
 
     if(auto error = llvm::sys::fs::rename(temp_path, final_path)) {
-        logging::warn("Fail to rename temporary file to final cache file: {}", error.message());
+        LOGGING_WARN("Fail to rename temporary file to final cache file: {}", error.message());
         return;
     }
 
     clean_up.release();
 
-    logging::info("Save cache info successfully");
+    LOGGING_INFO("Save cache info successfully");
 }
 
 namespace {
 
-bool check_pch_update(llvm::StringRef content,
-                      std::uint32_t bound,
-                      CompilationDatabase::LookupInfo& info,
-                      PCHInfo& pch) {
+bool
+    check_pch_update(llvm::StringRef content, std::uint32_t bound, LookupInfo& info, PCHInfo& pch) {
     if(content.substr(0, bound) != pch.preamble) {
         return true;
     }
@@ -170,7 +168,7 @@ bool check_pch_update(llvm::StringRef content,
 }
 
 /// The actual PCH build task.
-async::Task<bool> build_pch_task(CompilationDatabase::LookupInfo& info,
+async::Task<bool> build_pch_task(LookupInfo& info,
                                  std::string cache_dir,
                                  std::shared_ptr<OpenFile> open_file,
                                  std::string path,
@@ -180,7 +178,7 @@ async::Task<bool> build_pch_task(CompilationDatabase::LookupInfo& info,
     if(!fs::exists(cache_dir)) {
         auto error = fs::create_directories(cache_dir);
         if(error) {
-            logging::warn("Fail to create directory for PCH building: {}", cache_dir);
+            LOGGING_WARN("Fail to create directory for PCH building: {}", cache_dir);
             co_return false;
         }
     }
@@ -201,7 +199,7 @@ async::Task<bool> build_pch_task(CompilationDatabase::LookupInfo& info,
         command += argument;
     }
 
-    logging::info("Start building PCH for {}, command: [{}]", path, command);
+    LOGGING_INFO("Start building PCH for {}, command: [{}]", path, command);
     command.clear();
 
     PCHInfo pch;
@@ -222,14 +220,14 @@ async::Task<bool> build_pch_task(CompilationDatabase::LookupInfo& info,
     });
 
     if(!success) {
-        logging::warn("Building PCH fails for {}, Because: {}", path, message);
+        LOGGING_WARN("Building PCH fails for {}, Because: {}", path, message);
         for(auto& diagnostic: *diagnostics) {
-            logging::warn("{}", diagnostic.message);
+            LOGGING_WARN("{}", diagnostic.message);
         }
         co_return false;
     }
 
-    logging::info("Building PCH successfully for {}", path);
+    LOGGING_INFO("Building PCH successfully for {}", path);
 
     /// Update the built PCH info.
     open_file->pch = std::move(pch);
@@ -248,7 +246,7 @@ async::Task<bool> Server::build_pch(std::string file, std::string content) {
     CommandOptions options;
     options.resource_dir = true;
     options.query_driver = true;
-    auto info = database.get_command(file, options);
+    auto info = database.lookup(file, options);
 
     auto bound = compute_preamble_bound(content);
     auto& open_file = opening_files.get_or_add(file);
@@ -256,7 +254,7 @@ async::Task<bool> Server::build_pch(std::string file, std::string content) {
     /// Check update ...
     if(open_file->pch && !check_pch_update(content, bound, info, *open_file->pch)) {
         /// If not need update, return directly.
-        logging::info("PCH is already up-to-date for {}", file);
+        LOGGING_INFO("PCH is already up-to-date for {}", file);
         co_return true;
     }
 
@@ -265,12 +263,12 @@ async::Task<bool> Server::build_pch(std::string file, std::string content) {
     if(!task.empty()) {
         if(task.finished()) {
             task.release().destroy();
-            logging::info("Release old pch task!");
+            LOGGING_INFO("Release old pch task!");
         } else {
             task.cancel();
             task.dispose();
         }
-        logging::info("Cancel old PCH building task!");
+        LOGGING_INFO("Cancel old PCH building task!");
     }
 
     /// Schedule the new building task.
@@ -306,7 +304,7 @@ async::Task<> Server::build_ast(std::string path, std::string content) {
 
     auto pch = file->pch;
     if(!pch) {
-        logging::fatal("Expected PCH built at this point");
+        LOGGING_FATAL("Expected PCH built at this point");
     }
 
     CommandOptions options;
@@ -315,7 +313,7 @@ async::Task<> Server::build_ast(std::string path, std::string content) {
 
     CompilationParams params;
     params.kind = CompilationUnit::Content;
-    params.arguments = database.get_command(path, options).arguments;
+    params.arguments = database.lookup(path, options).arguments;
     params.add_remapped_file(path, content);
     params.pch = {pch->path, pch->preamble.size()};
     file->diagnostics->clear();
@@ -326,9 +324,9 @@ async::Task<> Server::build_ast(std::string path, std::string content) {
     auto ast = co_await async::submit([&] { return compile(params); });
     if(!ast) {
         /// FIXME: Fails needs cancel waiting tasks.
-        logging::warn("Building AST fails for {}, Beacuse: {}", path, ast.error());
+        LOGGING_WARN("Building AST fails for {}, Beacuse: {}", path, ast.error());
         for(auto& diagnostic: *file->diagnostics) {
-            logging::warn("{}", diagnostic.message);
+            LOGGING_WARN("{}", diagnostic.message);
         }
         co_return;
     }
@@ -351,7 +349,7 @@ async::Task<> Server::build_ast(std::string path, std::string content) {
     /// Dispose the task so that it will destroyed when task complete.
     file->ast_build_task.dispose();
 
-    logging::info("Building AST successfully for {}", path);
+    LOGGING_INFO("Building AST successfully for {}", path);
 }
 
 async::Task<std::shared_ptr<OpenFile>> Server::add_document(std::string path, std::string content) {
@@ -365,12 +363,12 @@ async::Task<std::shared_ptr<OpenFile>> Server::add_document(std::string path, st
     if(!task.empty()) {
         if(task.finished()) {
             task.release().destroy();
-            logging::info("Release old AST building Task!");
+            LOGGING_INFO("Release old AST building Task!");
         } else {
             task.cancel();
             task.dispose();
         }
-        logging::info("Cancel old AST building Task!");
+        LOGGING_INFO("Cancel old AST building Task!");
     }
 
     /// Create and schedule a new task.
