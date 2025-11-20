@@ -221,6 +221,11 @@ rule("clice_build_config")
             end
         elseif target:is_plat("linux") then
             target:add("ldflags", "-fuse-ld=lld", "-static-libstdc++", "-Wl,--gc-sections")
+            target:add("ldflags", "-static-libgcc")
+            target:add("ldflags", "-static")
+            target:add("ldflags", "-static-pie")
+            target:add("cxflags", "-static")
+            target:add("ldflags", "-Wl,--whole-archive -lpthread -Wl,--no-whole-archive")
         elseif target:is_plat("macosx") then
             target:add("ldflags", "-fuse-ld=lld", "-static-libc++", "-Wl,-dead_strip,-object_path_lto,clice.lto.o")
         end
